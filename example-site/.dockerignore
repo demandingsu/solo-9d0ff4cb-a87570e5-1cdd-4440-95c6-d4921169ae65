@@ -1,3 +1,4 @@
 __pycache__/
 *.pyc
 site/
+site_variant_b/

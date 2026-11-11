@@ -8,6 +8,7 @@ from __future__ import annotations
 import functools
 import http.server
 import sys
+import tempfile
 import threading
 from pathlib import Path
 
@@ -20,8 +21,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "webapp"))
 
 from app.crawler import crawl  # noqa: E402
 from app.merger import merge_announcements  # noqa: E402
-from app.models import ResultStatus  # noqa: E402
+from app.models import Announcement, ResultStatus  # noqa: E402
 from app.parser import parse_detail  # noqa: E402
+from app.content import comparison_key, extract_visible_content  # noqa: E402
+from app.baseline import load_baseline, process_baseline  # noqa: E402
 
 SITE_DIR = Path(__file__).resolve().parent.parent / "example-site" / "site"
 EXPECTED = {
@@ -105,6 +108,73 @@ def main() -> int:
         print("  ✓ 无项目编号页面抛出 ValueError")
     else:
         raise AssertionError("无项目编号页面未被拒绝")
+
+    print("[6] 静默改写：忽略排版空白、基线建立与不完整保护 ...")
+    html_a = """
+    <html><body>
+      <nav>导航文字不参与比对</nav>
+      <table class="fields">
+        <tr><th>项目编号</th><td>RW-001</td></tr>
+        <tr><th>发布时间</th><td>2026-10-01 09:00:00</td></tr>
+      </table>
+      <div class="content">
+        <p>投标截止时间：<strong>2026-10-20 10:00</strong>。</p>
+        <p>请按时递交投标文件。</p>
+      </div>
+      <footer>页脚不参与比对</footer>
+    </body></html>
+    """
+    html_a_reformatted = """
+    <html><body>
+      <nav>导航文字不参与比对</nav>
+      <table class="fields">
+        <tr>
+          <th>项目编号</th>
+          <td aria-hidden="true">隐藏的附加文字</td>
+          <td>RW-001</td>
+        </tr>
+        <tr><th>发布时间</th><td>2026-10-01 09:00:00</td></tr>
+      </table>
+      <div class="content">
+        <p>投标截止时间：<strong>2026-10-20 10:00</strong>。</p>
+
+        <p>请按时&#160;递交投标文件。</p>
+      </div>
+      <footer>页脚不参与比对</footer>
+    </body></html>
+    """
+    text_a = extract_visible_content(html_a)
+    text_a2 = extract_visible_content(html_a_reformatted)
+    assert_equal(comparison_key(text_a), comparison_key(text_a2),
+                 "纯排版空白与隐藏元素不影响可见文字比对")
+
+    url = "http://test/detail/rw-001.html"
+    ann_a = Announcement(url=url, project_no="RW-001", title="原始公告", content_text=text_a)
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "baseline.sqlite3"
+        first = process_baseline("http://test/list", [ann_a], complete=True, db_path=db)
+        assert_equal(first.first_baseline, True, "首次完整采集建立基线")
+        assert_equal(first.changes, [], "首次采集不报告改写")
+
+        html_b = html_a.replace("2026-10-20 10:00", "2026-10-27 10:00").replace(
+            "请按时递交投标文件。", "投标安排已调整，不再另行发布更正。"
+        )
+        ann_b = Announcement(
+            url=url, project_no="RW-001", title="原始公告", content_text=extract_visible_content(html_b)
+        )
+        second = process_baseline("http://test/list", [ann_b], complete=True, db_path=db)
+        assert_equal(len(second.changes), 1, "同一详情 URL 的文字变化被识别")
+        assert_equal(second.changes[0].detail_url, url, "以详情 URL 识别公告")
+        assert_equal("2026-10-20" in second.changes[0].before_text, True, "展示变动前文字")
+        assert_equal("2026-10-27" in second.changes[0].after_text, True, "展示变动后文字")
+
+        saved = load_baseline("http://test/list", db)
+        assert_equal(saved[url].content_text, ann_b.content_text, "完整采集后基线更新为本次结果")
+
+        third = process_baseline("http://test/list", [ann_a], complete=False, db_path=db)
+        assert_equal(third.changes, [], "不完整采集不进行改写比对")
+        assert_equal(load_baseline("http://test/list", db)[url].content_text,
+                     ann_b.content_text, "不完整采集不覆盖原基线")
 
     print("\n全部测试通过 ✅")
     return 0

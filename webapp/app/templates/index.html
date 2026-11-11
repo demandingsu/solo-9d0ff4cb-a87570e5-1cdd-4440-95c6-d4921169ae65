@@ -66,6 +66,23 @@
     </div>
   </div>
 
+  <div class="card">
+    <form method="get" action="/rewrites">
+      <input type="url" name="url" value="{{ entry_url }}" placeholder="https://example.gov.cn/notice/list" required>
+      <button type="submit">核查静默改写</button>
+    </form>
+    <div class="hint">
+      同一列表入口沿用一份 SQLite 基线；发现原详情页文字被直接改写而未见更正公告时，展示变动前后的文字与来源链接。
+    </div>
+  </div>
+
+  {% if report is not none and not report.complete %}
+  <div class="errors" style="margin-bottom:20px;">
+    <strong>本次采集不完整。</strong>
+    <ul>{% for reason in report.incomplete_reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+
   {% if report is not none %}
   <div class="card">
     <h2>抓取概况</h2>

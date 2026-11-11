@@ -17,3 +17,7 @@ ul.notice-list li { border-bottom:1px solid #eef1f5; }
 .pager a, .pager .disabled { display:inline-block; padding:7px 16px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; }
 .pager a { background:#1d4ed8; color:#fff; text-decoration:none; border-color:#1d4ed8; }
 .pager .disabled { color:#94a3b8; background:#f1f5f9; }
+.button { display:inline-block; padding:8px 16px; margin-right:8px; background:#1d4ed8; color:#fff;
+          text-decoration:none; border-radius:6px; font-size:14px; }
+.button:hover { background:#1e40af; }
+.muted { color:#64748b; font-size:13px; }

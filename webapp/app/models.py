@@ -25,6 +25,12 @@ class Announcement:
     publish_time: str = ""      # 原始发布时间文本
     deadline: Optional[str] = None   # 投标截止时间原文；未给出时为 None
     declares_extension: bool = False  # 正文是否明确声明延期/顺延
+    content_text: str = ""           # 字段表与正文区的可见文字（用于静默改写比对）
+
+    @property
+    def visible_text(self) -> str:
+        """content_text 的语义化别名。"""
+        return self.content_text
 
 
 @dataclass

@@ -34,6 +34,22 @@ class CrawlReport:
     visited_list_pages: list[str] = field(default_factory=list)
     skipped_urls: list[tuple[str, str]] = field(default_factory=list)  # (url, 原因)
     errors: list[str] = field(default_factory=list)
+    complete: bool = True
+    incomplete_reasons: list[str] = field(default_factory=list)
+
+    @property
+    def is_complete(self) -> bool:
+        return self.complete
+
+    @property
+    def incomplete(self) -> bool:
+        return not self.complete
+
+    def mark_incomplete(self, reason: str) -> None:
+        """标记本次采集不完整；重复原因只保留一条。"""
+        self.complete = False
+        if reason not in self.incomplete_reasons:
+            self.incomplete_reasons.append(reason)
 
 
 def _normalize_url(base: str, href: str) -> str | None:
@@ -101,6 +117,7 @@ def crawl(entry_url: str) -> CrawlReport:
     parsed_entry = urlparse(entry_url)
     if parsed_entry.scheme not in ("http", "https") or not parsed_entry.netloc:
         report.errors.append("入口地址必须是 http(s) 开头的完整 URL。")
+        report.mark_incomplete("入口地址无效")
         return report
 
     visited_lists: set[str] = set()
@@ -113,7 +130,12 @@ def crawl(entry_url: str) -> CrawlReport:
         headers={"User-Agent": USER_AGENT},
     ) as client:
         # 1. 沿"下一页"遍历列表页
-        while queue and len(visited_lists) < MAX_LIST_PAGES:
+        while queue:
+            if len(visited_lists) >= MAX_LIST_PAGES:
+                report.mark_incomplete(
+                    f"达到列表页数量上限（{MAX_LIST_PAGES}），仍有后续分页未读取"
+                )
+                break
             list_url = queue.pop(0)
             if list_url in visited_lists:
                 continue
@@ -125,19 +147,23 @@ def crawl(entry_url: str) -> CrawlReport:
                 response.raise_for_status()
             except httpx.HTTPError as exc:
                 report.errors.append(f"列表页抓取失败 {list_url}：{exc}")
+                report.mark_incomplete(f"列表页读取失败：{list_url}")
                 continue
 
             detail_urls, next_page = _extract_list_links(response.text, str(response.url))
 
             # 2. 抓取并解析详情页
             for detail_url in detail_urls:
-                if len(visited_details) >= MAX_DETAIL_PAGES:
-                    report.skipped_urls.append((detail_url, "达到详情页数量上限"))
-                    continue
                 if detail_url in visited_details:
                     continue
                 if not same_origin(entry_url, detail_url):
                     report.skipped_urls.append((detail_url, "与入口不同站点，已跳过"))
+                    continue
+                if len(visited_details) >= MAX_DETAIL_PAGES:
+                    report.skipped_urls.append((detail_url, "达到详情页数量上限"))
+                    report.mark_incomplete(
+                        f"达到详情页数量上限（{MAX_DETAIL_PAGES}），部分公告未读取"
+                    )
                     continue
                 visited_details.add(detail_url)
                 try:
@@ -145,18 +171,22 @@ def crawl(entry_url: str) -> CrawlReport:
                     detail_resp.raise_for_status()
                 except httpx.HTTPError as exc:
                     report.errors.append(f"详情页抓取失败 {detail_url}：{exc}")
+                    report.mark_incomplete(f"详情页读取失败：{detail_url}")
                     continue
                 try:
                     announcement = parse_detail(detail_resp.text, str(detail_resp.url))
-                except ValueError as exc:
+                except Exception as exc:  # 解析失败同样意味着本次采集不完整
                     report.skipped_urls.append((detail_url, str(exc)))
+                    report.mark_incomplete(f"详情页解析失败：{detail_url}")
                     continue
                 report.announcements.append(announcement)
 
             # 3. 同站点下一页
-            if next_page and next_page not in visited_lists and same_origin(entry_url, next_page):
-                queue.append(next_page)
-            elif next_page and not same_origin(entry_url, next_page):
-                report.skipped_urls.append((next_page, "下一页指向不同站点，已停止跟随"))
+            if next_page and next_page not in visited_lists:
+                if same_origin(entry_url, next_page):
+                    queue.append(next_page)
+                else:
+                    report.skipped_urls.append((next_page, "下一页指向不同站点，已停止跟随"))
+                    report.mark_incomplete("分页链接指向不同站点，无法确认是否已遍历全部分页")
 
     return report

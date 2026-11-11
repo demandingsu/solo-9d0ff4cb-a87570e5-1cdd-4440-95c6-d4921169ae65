@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>静默改写核查 - 招标延期核对助手</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+         background: #f0f2f5; color: #1f2937; }
+  header { background: #1d4ed8; color: #fff; padding: 20px 32px; }
+  header h1 { margin: 0 0 6px; font-size: 22px; }
+  header p { margin: 0; font-size: 13px; opacity: .85; }
+  main { max-width: 1180px; margin: 24px auto; padding: 0 20px; }
+  .card { background: #fff; border-radius: 10px; padding: 20px 24px; margin-bottom: 20px;
+          box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  form { display: flex; gap: 12px; flex-wrap: wrap; }
+  input[name="url"] { flex: 1 1 420px; padding: 11px 14px; border: 1px solid #cbd5e1;
+                      border-radius: 8px; font-size: 14px; }
+  button { padding: 11px 28px; background: #1d4ed8; color: #fff; border: none;
+           border-radius: 8px; font-size: 14px; cursor: pointer; }
+  button:hover { background: #1e40af; }
+  .hint { margin-top: 10px; font-size: 12px; color: #64748b; }
+  .hint code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }
+  .meta-row { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: #475569; margin-bottom: 14px; }
+  .meta-row span { background: #f8fafc; border: 1px solid #e2e8f0; padding: 4px 10px; border-radius: 999px; }
+  .status-ok { background: #dcfce7; border: 1px solid #86efac; color: #166534; border-radius: 8px;
+               padding: 12px 16px; font-size: 13px; }
+  .status-first { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; border-radius: 8px;
+                  padding: 12px 16px; font-size: 13px; }
+  .status-incomplete { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 8px;
+                       padding: 12px 16px; font-size: 13px; }
+  .status-incomplete ul { margin: 7px 0 0; padding-left: 20px; }
+  .errors { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 8px;
+            padding: 12px 16px; font-size: 13px; }
+  .errors ul { margin: 6px 0 0; padding-left: 20px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border: 1px solid #e2e8f0; padding: 9px 10px; text-align: left; vertical-align: top; }
+  th { background: #f8fafc; white-space: nowrap; }
+  .change-link { color: #1d4ed8; text-decoration: none; word-break: break-all; }
+  .change-link:hover { text-decoration: underline; }
+  .text-panel { white-space: pre-wrap; word-break: break-word; background: #f8fafc;
+                border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 12px;
+                font-family: inherit; font-size: 12px; line-height: 1.65; margin: 0; max-height: 360px;
+                overflow: auto; }
+  .text-panel.before { border-left: 4px solid #f59e0b; }
+  .text-panel.after { border-left: 4px solid #16a34a; }
+  .label { display: block; font-size: 11px; color: #64748b; margin: 0 0 4px; }
+  .empty { text-align: center; color: #64748b; padding: 32px; font-size: 14px; }
+  h2 { font-size: 16px; margin: 0 0 14px; }
+  .back { font-size: 13px; margin-bottom: 12px; }
+  .back a { color: #1d4ed8; text-decoration: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>静默改写核查</h1>
+  <p>复查已发布公告是否在原详情 URL 上被直接改写，而网站没有另行发布更正公告。</p>
+</header>
+<main>
+  <div class="back"><a href="/">← 返回招标延期核对</a></div>
+
+  <div class="card">
+    <form method="get" action="/rewrites">
+      <input type="url" name="url" value="{{ entry_url }}" placeholder="https://example.gov.cn/notice/list" required>
+      <button type="submit">核查静默改写</button>
+    </form>
+    <div class="hint">
+      示例站点入口：<code>http://example-site/list/page_1.html</code>。
+      首次完整采集建立 SQLite 基线；之后每次完整采集都与基线比对。
+      在示例站 <code>http://localhost:8080/control.html</code> 切换版本，可让同一详情 URL 返回不同文字。
+    </div>
+  </div>
+
+  {% if result is not none %}
+  {% set report = result.report %}
+  <div class="card">
+    <h2>本次采集</h2>
+    <div class="meta-row">
+      <span>列表页：{{ report.visited_list_pages|length }} 个</span>
+      <span>公告详情：{{ report.announcements|length }} 条</span>
+      <span>跳过链接：{{ report.skipped_urls|length }} 个</span>
+      <span>抓取错误：{{ report.errors|length }} 个</span>
+      <span>数据库：{{ db_path }}</span>
+    </div>
+
+    {% if not result.complete %}
+      <div class="status-incomplete">
+        <strong>本次采集不完整，未进行改写比对，也不会覆盖原基线。</strong>
+        <ul>
+          {% for reason in result.incomplete_reasons %}<li>{{ reason }}</li>{% endfor %}
+          {% if not result.incomplete_reasons %}<li>分页或详情采集未能确认完整。</li>{% endif %}
+        </ul>
+        <div style="margin-top:8px;">
+          {% if result.baseline_existed %}
+            已有基线（采集于 {{ result.baseline.baseline_captured_at or '未知时间' }}）保持原样。
+          {% else %}
+            尚未建立基线；本次不完整采集未写入基线。
+          {% endif %}
+        </div>
+      </div>
+    {% elif result.first_baseline %}
+      <div class="status-first">
+        <strong>已完成首次完整采集，SQLite 基线已建立。</strong>
+        <div style="margin-top:6px;">
+          本次共写入 {{ result.report.announcements|length }} 条公告的字段表与正文文字。
+          从下一次完整采集开始，可发现同一详情 URL 上的静默改写。
+        </div>
+      </div>
+    {% elif result.changes %}
+      <div class="status-ok" style="background:#fffbeb;border-color:#fde68a;color:#92400e;">
+        <strong>发现 {{ result.changes|length }} 条公告在原详情 URL 上被改写。</strong>
+        <div style="margin-top:6px;">
+          仅比较前后两次完整采集都出现的公告；下方展示变动前后的可见文字及来源链接。
+          本次完整采集结果已更新为新基线。
+        </div>
+      </div>
+    {% else %}
+      <div class="status-ok">
+        <strong>本次完整采集未发现静默改写。</strong>
+        <div style="margin-top:6px;">
+          前后两次完整采集都出现的 {{ result.baseline.compared_count }} 条公告文字一致；
+          基线已按本次结果更新。
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if result.complete and result.changes %}
+  <div class="card">
+    <h2>变动前后的文字</h2>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:24%;">公告与来源链接</th>
+          <th style="width:38%;">变动前文字（上次完整基线）</th>
+          <th style="width:38%;">变动后文字（本次完整采集）</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for change in result.changes %}
+        <tr>
+          <td>
+            <strong>{{ change.title or '（无标题）' }}</strong>
+            <div style="margin-top:6px;">
+              <a class="change-link" href="/view?url={{ change.detail_url|urlencode }}" target="_blank">{{ change.detail_url }}</a>
+            </div>
+            <div class="hint" style="margin-top:6px;">
+              上次采集：{{ change.captured_before }}<br>
+              本次采集：{{ change.captured_after }}
+            </div>
+          </td>
+          <td>
+            <span class="label">变动前</span>
+            <pre class="text-panel before">{{ change.before_text }}</pre>
+          </td>
+          <td>
+            <span class="label">变动后</span>
+            <pre class="text-panel after">{{ change.after_text }}</pre>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if report.errors or report.incomplete_reasons %}
+  <div class="card">
+    {% if report.errors %}
+    <div class="errors">
+      <strong>抓取错误</strong>
+      <ul>{% for err in report.errors %}<li>{{ err }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+    {% if report.incomplete_reasons and result.complete %}
+    <div class="errors" style="margin-top:12px;">
+      <strong>完整性提示</strong>
+      <ul>{% for reason in report.incomplete_reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if report.skipped_urls %}
+  <div class="card">
+    <details>
+      <summary>查看跳过的链接（{{ report.skipped_urls|length }}）</summary>
+      <table style="margin-top:8px;">
+        <tr><th>链接</th><th>原因</th></tr>
+        {% for link, reason in report.skipped_urls %}
+        <tr><td style="word-break:break-all;">{{ link }}</td><td>{{ reason }}</td></tr>
+        {% endfor %}
+      </table>
+    </details>
+  </div>
+  {% endif %}
+  {% endif %}
+</main>
+</body>
+</html>

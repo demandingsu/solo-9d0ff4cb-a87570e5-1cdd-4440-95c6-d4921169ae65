@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>静默改写演示控制台</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="wrap">
+  <h1>静默改写演示控制台</h1>
+  <p>切换后，<code>/detail/notice_001.html</code> 等<strong>同一个详情 URL</strong>会返回不同文字，
+     但列表页不会出现任何新的更正公告。</p>
+  <p>当前版本：<strong id="current-variant">A（原始公告）</strong></p>
+  <p>
+    <a class="button" href="/set-variant?variant=a">切换到 A（原始公告）</a>
+    <a class="button" href="/set-variant?variant=b">切换到 B（静默改写后）</a>
+  </p>
+  <p><a href="list/page_1.html">进入公告列表</a></p>
+  <p class="muted">提示：切换到 B 后，在网页应用中再点一次“核查静默改写”，即可看到变动前后的文字。</p>
+</div>
+<script>
+fetch('/variant').then(function (r) { return r.json(); }).then(function (data) {
+  document.getElementById('current-variant').textContent =
+    data.variant === 'b' ? 'B（静默改写后）' : 'A（原始公告）';
+});
+</script>
+</body>
+</html>

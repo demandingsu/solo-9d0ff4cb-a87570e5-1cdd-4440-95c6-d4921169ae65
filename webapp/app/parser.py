@@ -13,6 +13,7 @@ import re
 
 from bs4 import BeautifulSoup
 
+from .content import extract_visible_content
 from .models import Announcement
 from .utils import strip_label
 
@@ -161,4 +162,5 @@ def parse_detail(html: str, url: str) -> Announcement:
         publish_time=fields.get("publish_time", ""),
         deadline=deadline,
         declares_extension=declares_extension,
+        content_text=extract_visible_content(html),
     )

@@ -16,6 +16,22 @@ import random
 from pathlib import Path
 
 OUTPUT = Path(__file__).resolve().parent / "site"
+# 版本 B 模拟网站“静默改写”：详情 URL 不变，直接改掉原公告的字段/正文。
+VARIANT_B_OUTPUT = Path(__file__).resolve().parent / "site_variant_b"
+
+# 仅修改部分公告，且不新增任何更正公告。键为详情页序号。
+VARIANT_B_CHANGES: dict[int, dict[str, str]] = {
+    1: {
+        "deadline": "2026-10-31 14:30:00",
+        "body": "因工作安排调整，本项目投标截止时间已作调整，请各投标人按本公告载明的时间执行。",
+    },
+    5: {
+        "body": "因场地安排变化，本项目投标及开标时间需要调整，具体安排见本公告，不再另行发布更正。",
+    },
+    11: {
+        "body": "本项目采购方式调整为竞争性磋商，具体投标安排以本页面最新内容为准。",
+    },
+}
 
 # (项目编号, 项目名称, 公告类型, 发布时间, 截止时间或 None, 标题, 正文补充)
 NOTICES: list[tuple[str, str, str, str, str | None, str, str]] = [
@@ -77,8 +93,11 @@ def detail_filename(index: int) -> str:
     return f"notice_{index:03d}.html"
 
 
-def build_detail(notice: tuple, index: int) -> str:
+def build_detail(notice: tuple, index: int, overrides: dict[str, str] | None = None) -> str:
     project_no, project_name, notice_type, publish_time, deadline, title, body = notice
+    overrides = overrides or {}
+    deadline = overrides.get("deadline", deadline)
+    body = overrides.get("body", body)
     rng = random.Random(index)
 
     # 打乱字段顺序，模拟不同页面模板；无新时间的延期页不输出截止时间字段
@@ -171,7 +190,40 @@ def build_index() -> str:
 <div class="wrap">
   <h1>示例采购信息平台</h1>
   <p><a href="list/page_1.html">进入招标采购公告列表</a></p>
+  <p><a href="control.html">切换静默改写演示版本</a></p>
 </div>
+</body>
+</html>
+"""
+
+
+def build_control() -> str:
+    return """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>静默改写演示控制台</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="wrap">
+  <h1>静默改写演示控制台</h1>
+  <p>切换后，<code>/detail/notice_001.html</code> 等<strong>同一个详情 URL</strong>会返回不同文字，
+     但列表页不会出现任何新的更正公告。</p>
+  <p>当前版本：<strong id="current-variant">A（原始公告）</strong></p>
+  <p>
+    <a class="button" href="/set-variant?variant=a">切换到 A（原始公告）</a>
+    <a class="button" href="/set-variant?variant=b">切换到 B（静默改写后）</a>
+  </p>
+  <p><a href="list/page_1.html">进入公告列表</a></p>
+  <p class="muted">提示：切换到 B 后，在网页应用中再点一次“核查静默改写”，即可看到变动前后的文字。</p>
+</div>
+<script>
+fetch('/variant').then(function (r) { return r.json(); }).then(function (data) {
+  document.getElementById('current-variant').textContent =
+    data.variant === 'b' ? 'B（静默改写后）' : 'A（原始公告）';
+});
+</script>
 </body>
 </html>
 """
@@ -196,6 +248,10 @@ ul.notice-list li { border-bottom:1px solid #eef1f5; }
 .pager a, .pager .disabled { display:inline-block; padding:7px 16px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; }
 .pager a { background:#1d4ed8; color:#fff; text-decoration:none; border-color:#1d4ed8; }
 .pager .disabled { color:#94a3b8; background:#f1f5f9; }
+.button { display:inline-block; padding:8px 16px; margin-right:8px; background:#1d4ed8; color:#fff;
+          text-decoration:none; border-radius:6px; font-size:14px; }
+.button:hover { background:#1e40af; }
+.muted { color:#64748b; font-size:13px; }
 """
 
 
@@ -203,6 +259,7 @@ def main() -> None:
     (OUTPUT / "list").mkdir(parents=True, exist_ok=True)
     (OUTPUT / "detail").mkdir(parents=True, exist_ok=True)
     (OUTPUT / "assets").mkdir(parents=True, exist_ok=True)
+    (VARIANT_B_OUTPUT / "detail").mkdir(parents=True, exist_ok=True)
 
     indexed = list(enumerate(NOTICES, start=1))
     # 列表页按发布时间倒序（最新在前），分两页
@@ -220,10 +277,18 @@ def main() -> None:
         (OUTPUT / "detail" / detail_filename(index)).write_text(
             build_detail(notice, index), encoding="utf-8"
         )
+        if index in VARIANT_B_CHANGES:
+            (VARIANT_B_OUTPUT / "detail" / detail_filename(index)).write_text(
+                build_detail(notice, index, VARIANT_B_CHANGES[index]), encoding="utf-8"
+            )
 
     (OUTPUT / "index.html").write_text(build_index(), encoding="utf-8")
+    (OUTPUT / "control.html").write_text(build_control(), encoding="utf-8")
     (OUTPUT / "assets" / "style.css").write_text(CSS, encoding="utf-8")
-    print(f"示例站点已生成：{OUTPUT}（{len(NOTICES)} 条公告，{len(pages)} 个列表页）")
+    print(
+        f"示例站点已生成：{OUTPUT}（{len(NOTICES)} 条公告，{len(pages)} 个列表页）；"
+        f"静默改写版本：{VARIANT_B_OUTPUT}（{len(VARIANT_B_CHANGES)} 条公告文字不同）"
+    )
 
 
 if __name__ == "__main__":

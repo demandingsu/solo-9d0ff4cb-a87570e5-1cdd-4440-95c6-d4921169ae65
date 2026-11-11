@@ -3,6 +3,10 @@ services:
     build: ./webapp
     ports:
       - "8000:8000"
+    environment:
+      SNAPSHOT_DB_PATH: /data/snapshots.sqlite3
+    volumes:
+      - baseline-data:/data
     depends_on:
       - example-site
     restart: unless-stopped
@@ -12,3 +16,6 @@ services:
     ports:
       - "8080:80"
     restart: unless-stopped
+
+volumes:
+  baseline-data:

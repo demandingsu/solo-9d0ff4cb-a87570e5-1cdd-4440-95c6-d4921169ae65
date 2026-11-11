@@ -10,8 +10,10 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 
+from .baseline import get_db_path
 from .crawler import REQUEST_TIMEOUT, USER_AGENT, crawl
 from .merger import merge_announcements
+from .rewrite_check import check_silent_rewrites
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -20,7 +22,18 @@ app = FastAPI(title="招标延期核对助手")
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request, url: str | None = None) -> HTMLResponse:
+def index(
+    request: Request,
+    url: str | None = None,
+    mode: str | None = None,
+    check: str | None = None,
+    action: str | None = None,
+) -> HTMLResponse:
+    # 允许从首页直接触发静默改写核查，同时保留原有延期核对行为。
+    trigger = (mode or check or action or "").strip().lower()
+    if trigger in {"rewrite", "rewrites", "silent", "silent-rewrite", "silent_rewrite"}:
+        return rewrite_check(request, url)
+
     context = {
         "request": request,
         "entry_url": url or "",
@@ -32,6 +45,33 @@ def index(request: Request, url: str | None = None) -> HTMLResponse:
         context["report"] = report
         context["results"] = merge_announcements(report.announcements)
     return templates.TemplateResponse("index.html", context)
+
+
+def rewrite_check(request: Request, url: str | None = None) -> HTMLResponse:
+    entry_url = (url or "").strip()
+    result = None
+    if entry_url:
+        result = check_silent_rewrites(entry_url)
+    return templates.TemplateResponse(
+        "rewrites.html",
+        {
+            "request": request,
+            "entry_url": entry_url,
+            "result": result,
+            "db_path": get_db_path(),
+        },
+    )
+
+
+@app.get("/rewrites", response_class=HTMLResponse)
+@app.get("/rewrite-check", response_class=HTMLResponse)
+@app.get("/silent-rewrites", response_class=HTMLResponse)
+@app.get("/silent-rewrite", response_class=HTMLResponse)
+@app.get("/silent-rewrite-check", response_class=HTMLResponse)
+@app.get("/rewrite", response_class=HTMLResponse)
+def rewrites_page(request: Request, url: str | None = None) -> HTMLResponse:
+    """静默改写核查页：同一入口共用基线，只比较前后两次完整采集的交集。"""
+    return rewrite_check(request, url)
 
 
 @app.get("/health")
